@@ -14,9 +14,34 @@ export default function CatalogoPublico() {
   // Estado para las preguntas frecuentes desplegables (FAQ)
   const [faqAbierta, setFaqAbierta] = useState(null);
 
+  // Estado para ver la imagen ampliada (Modal / Lightbox)
+  const [imagenModal, setImagenModal] = useState(null);
+
+  // Estado para la foto activa de cada tarjeta (por si un producto tiene varias fotos)
+  const [fotoActiva, setFotoActiva] = useState({});
+
   useEffect(() => {
     cargarProductosSupabase();
   }, []);
+
+  // 🔄 Efecto para hacer que las fotos cambien solas cada 3 segundos si el producto tiene varias
+  useEffect(() => {
+    const intervalo = setInterval(() => {
+      setFotoActiva((prev) => {
+        const nuevoEstado = { ...prev };
+        productos.forEach((prod) => {
+          const fotos = obtenerFotos(prod);
+          if (fotos.length > 1) {
+            const actual = prev[prod.id] || 0;
+            nuevoEstado[prod.id] = (actual + 1) % fotos.length; // Pasa a la siguiente y vuelve a 0 al llegar al final
+          }
+        });
+        return nuevoEstado;
+      });
+    }, 3000); // 👈 3000 milisegundos = 3 segundos (lo podés cambiar si querés más rápido o lento)
+
+    return () => clearInterval(intervalo);
+  }, [productos]);
 
   const cargarProductosSupabase = async () => {
     setCargando(true);
@@ -26,6 +51,19 @@ export default function CatalogoPublico() {
       .order("created_at", { ascending: false });
     if (!error && data) setProductos(data);
     setCargando(false);
+  };
+
+  // Función para obtener la lista de fotos (si vienen separadas por coma o es una sola)
+  const obtenerFotos = (prod) => {
+    if (prod.imagenes && Array.isArray(prod.imagenes)) return prod.imagenes;
+    if (prod.imagen_url && prod.imagen_url.includes(",")) {
+      return prod.imagen_url.split(",").map((url) => url.trim());
+    }
+    return prod.imagen_url ? [prod.imagen_url] : [];
+  };
+
+  const cambiarFoto = (productoId, idx) => {
+    setFotoActiva((prev) => ({ ...prev, [productoId]: idx }));
   };
 
   const categorias = [
@@ -71,7 +109,7 @@ export default function CatalogoPublico() {
   const enviarAWhatsApp = () => {
     if (carrito.length === 0) return;
 
-    const numeroWhatsApp = "5491135061353"; // 👈 PONÉ ACÁ TU NÚMERO CON CÓDIGO DE ÁREA
+    const numeroWhatsApp = "5491135061353";
     let mensaje = `¡Hola! 👋 Quisiera hacer el siguiente pedido en *Rufus Design 3D*:\n\n`;
     if (clienteNombre) mensaje += `*Cliente:* ${clienteNombre}\n\n`;
     mensaje += `*Detalle del pedido:*\n`;
@@ -94,7 +132,7 @@ export default function CatalogoPublico() {
     {
       pregunta: "¿Cómo es el envío o la entrega?",
       respuesta:
-        "Coordinamos entregas presenciales en Merlo, Mariano Acota y Ituzaingo, o realizamos envíos por correo a todo el país.",
+        "Coordinamos entregas presenciales en Merlo, Mariano Acosta y Ituzaingó, o realizamos envíos por correo a todo el país.",
     },
     {
       pregunta: "¿En qué colores están disponibles?",
@@ -134,7 +172,6 @@ export default function CatalogoPublico() {
         {/* Header Catálogo */}
         <header className="flex flex-col md:flex-row md:items-center justify-between border-b border-zinc-800 pb-5 gap-4">
           <div className="flex items-center gap-3">
-            {/* 👇 Logo redondo con borde y sombra */}
             <img 
                 src="/logo.png" 
                 alt="Rufus Design 3D Logo" 
@@ -147,7 +184,7 @@ export default function CatalogoPublico() {
                 <p className="text-[11px] text-zinc-400">Impresión y Fabricación Aditiva</p>
             </div>
             </div>
-          
+         
           <div>
             <h1 className="text-3xl font-extrabold tracking-tight">
               <span className="bg-gradient-to-r from-amber-400 to-amber-200 text-transparent bg-clip-text">
@@ -191,51 +228,88 @@ export default function CatalogoPublico() {
                 No hay productos en esta categoría por el momento.
               </p>
             ) : (
-              productosFiltrados.map((prod) => (
-                <div
-                  key={prod.id}
-                  className="bg-[#12161f] border border-zinc-800 p-5 rounded-2xl flex flex-col justify-between shadow-xl hover:border-amber-400/40 transition-all"
-                >
-                  <div className="space-y-3">
-                    {prod.imagen_url && prod.imagen_url.startsWith("http") ? (
-                      <img
-                        src={prod.imagen_url}
-                        alt={prod.nombre}
-                        className="w-full h-40 object-cover rounded-xl border border-zinc-800"
-                      />
-                    ) : (
-                      <div className="w-full h-32 bg-[#1c212e] rounded-xl flex items-center justify-center text-4xl border border-zinc-800">
-                        {prod.imagen_url || "📦"}
-                      </div>
-                    )}
-                    <div>
-                      <span className="text-[10px] bg-zinc-800 text-amber-400 px-2 py-0.5 rounded font-bold">
-                        {prod.categoria}
-                      </span>
-                      <h3 className="text-base font-bold text-white mt-1">
-                        {prod.nombre}
-                      </h3>
-                      {prod.descripcion && (
-                        <p className="text-xs text-zinc-400 mt-1">
-                          {prod.descripcion}
-                        </p>
+              productosFiltrados.map((prod) => {
+                const fotos = obtenerFotos(prod);
+                const idxFotoActiva = fotoActiva[prod.id] || 0;
+                const fotoActual = fotos[idxFotoActiva] || prod.imagen_url;
+
+                return (
+                  <div
+                    key={prod.id}
+                    className="bg-[#12161f] border border-zinc-800 p-5 rounded-2xl flex flex-col justify-between shadow-xl hover:border-amber-400/40 transition-all"
+                  >
+                    <div className="space-y-3">
+                      {/* Contenedor de Imagen con transición de opacidad real */}
+                        <div className="relative group w-full h-52 bg-[#0c0f17] rounded-xl border border-zinc-800 overflow-hidden flex items-center justify-center">
+                        {fotoActual && fotoActual.startsWith("http") ? (
+                            <>
+                            <img
+                                key={fotoActual}
+                                src={fotoActual}
+                                alt={prod.nombre}
+                                onClick={() => setImagenModal(fotoActual)}
+                                className="w-full h-full object-contain cursor-pointer transition-opacity duration-700 ease-in-out hover:scale-105 p-2 animate-[fadeIn_0.6s_ease-in-out]"
+                            />
+                            <div
+                                onClick={() => setImagenModal(fotoActual)}
+                                className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+                            >
+                                <span className="text-xs font-bold text-white bg-black/70 px-3 py-1.5 rounded-full border border-amber-400/50">
+                                🔍 Ver completa
+                                </span>
+                            </div>
+                            </>
+                        ) : (
+                            <div className="text-4xl">{prod.imagen_url || "📦"}</div>
+                        )}
+                        </div>
+
+                      {/* Miniaturas o puntos si hay varias fotos separadas por coma en el admin */}
+                      {fotos.length > 1 && (
+                        <div className="flex gap-2 justify-center pt-1">
+                          {fotos.map((img, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => cambiarFoto(prod.id, idx)}
+                              className={`w-3 h-3 rounded-full transition-all cursor-pointer ${
+                                idxFotoActiva === idx
+                                  ? "bg-amber-400 scale-110"
+                                  : "bg-zinc-700 hover:bg-zinc-500"
+                              }`}
+                            />
+                          ))}
+                        </div>
                       )}
+
+                      <div>
+                        <span className="text-[10px] bg-zinc-800 text-amber-400 px-2 py-0.5 rounded font-bold">
+                          {prod.categoria}
+                        </span>
+                        <h3 className="text-base font-bold text-white mt-1">
+                          {prod.nombre}
+                        </h3>
+                        {prod.descripcion && (
+                          <p className="text-xs text-zinc-400 mt-1">
+                            {prod.descripcion}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-5 pt-3 border-t border-zinc-800/80 flex items-center justify-between">
+                      <span className="text-lg font-black text-amber-400 font-mono">
+                        ${Number(prod.precio).toLocaleString()}
+                      </span>
+                      <button
+                        onClick={() => agregarAlCarrito(prod)}
+                        className="bg-amber-400 hover:bg-amber-300 text-black text-xs font-extrabold px-4 py-2.5 rounded-xl transition-all cursor-pointer shadow-lg"
+                      >
+                        + Agregar
+                      </button>
                     </div>
                   </div>
-
-                  <div className="mt-5 pt-3 border-t border-zinc-800/80 flex items-center justify-between">
-                    <span className="text-lg font-black text-amber-400 font-mono">
-                      ${Number(prod.precio).toLocaleString()}
-                    </span>
-                    <button
-                      onClick={() => agregarAlCarrito(prod)}
-                      className="bg-amber-400 hover:bg-amber-300 text-black text-xs font-extrabold px-4 py-2.5 rounded-xl transition-all cursor-pointer shadow-lg"
-                    >
-                      + Agregar
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 
@@ -326,7 +400,6 @@ export default function CatalogoPublico() {
         {/* SECCIÓN: CÓMO COMPRAR */}
         <section className="bg-[#12161f] border border-zinc-800 p-6 md:p-8 rounded-3xl space-y-6 shadow-xl">
           <div className="text-center space-y-3 flex flex-col items-center">
-            {/* Logo centrado y grande en la sección */}
             <img 
                 src="/logo.png" 
                 alt="Rufus Design 3D" 
@@ -339,7 +412,7 @@ export default function CatalogoPublico() {
             <p>1. Elegí tus productos y tocá "Agregar al pedido".</p>
             <p>2. Enviá el pedido por WhatsApp, todo en un solo mensaje.</p>
             <p>3. Te confirmo colores y plazo. Para comenzar tu pedido se abona una seña del 50% del total.</p>
-            <p>4. Cuando terminamos tu pedido te avisamos y coordinamos la entrega .</p>
+            <p>4. Cuando terminamos tu pedido te avisamos y coordinamos la entrega.</p>
           </div>
         </section>
 
@@ -380,6 +453,28 @@ export default function CatalogoPublico() {
             ))}
           </div>
         </section>
+
+        {/* MODAL / LIGHTBOX PARA VER IMAGEN EN TAMAÑO COMPLETO */}
+        {imagenModal && (
+          <div
+            className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setImagenModal(null)}
+          >
+            <div className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center">
+              <button
+                onClick={() => setImagenModal(null)}
+                className="absolute -top-10 right-0 text-white hover:text-amber-400 font-extrabold text-sm bg-zinc-800 px-3 py-1 rounded-xl border border-zinc-700 cursor-pointer"
+              >
+                ✕ Cerrar
+              </button>
+              <img
+                src={imagenModal}
+                alt="Vista ampliada"
+                className="max-w-full max-h-[85vh] object-contain rounded-2xl border-2 border-amber-400/40 shadow-2xl"
+              />
+            </div>
+          </div>
+        )}
 
         {/* Footer Catálogo Público */}
         <footer className="border-t border-zinc-800 pt-6 pb-8 flex flex-col md:flex-row items-center justify-between text-xs text-zinc-500 gap-4">

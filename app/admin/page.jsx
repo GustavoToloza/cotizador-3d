@@ -121,6 +121,14 @@ export default function AdminCatalogo() {
     setEditandoId(null);
   };
 
+  const obtenerPrimeraFoto = (prod) => {
+    if (prod.imagenes && Array.isArray(prod.imagenes) && prod.imagenes.length > 0) return prod.imagenes[0];
+    if (prod.imagen_url && prod.imagen_url.includes(",")) {
+      return prod.imagen_url.split(",")[0].trim();
+    }
+    return prod.imagen_url;
+  };
+
   // PANTALLA DE BLOQUEO POR CONTRASEÑA
   if (!estaAutenticado) {
     return (
@@ -307,19 +315,21 @@ export default function AdminCatalogo() {
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-3">
-                      {prod.imagen_url && prod.imagen_url.startsWith("http") ? (
-                        <img src={prod.imagen_url} alt={prod.nombre} className="w-12 h-12 rounded-lg object-cover border border-zinc-700" />
-                      ) : (
-                        <div className="text-2xl bg-[#1c212e] w-12 h-12 rounded-lg flex items-center justify-center border border-zinc-700">
-                          {prod.imagen_url || "📦"}
+                    {/* Miniatura del producto en el Admin */}
+                    {(() => {
+                    const fotoAdmin = obtenerPrimeraFoto(prod);
+                    return fotoAdmin && fotoAdmin.startsWith("http") ? (
+                        <img
+                        src={fotoAdmin}
+                        alt={prod.nombre}
+                        className="w-12 h-12 object-contain rounded-lg border border-zinc-800 bg-[#0c0f17] p-1"
+                        />
+                    ) : (
+                        <div className="w-12 h-12 bg-[#1c212e] rounded-lg flex items-center justify-center text-lg border border-zinc-800">
+                        {fotoAdmin || "📦"}
                         </div>
-                      )}
-                      <div>
-                        <h3 className="font-bold text-white text-sm">{prod.nombre}</h3>
-                        <p className="text-xs text-zinc-400 line-clamp-2">{prod.descripcion || "Sin descripción"}</p>
-                      </div>
-                    </div>
+                    );
+                    })()}
                   </div>
 
                   <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-zinc-800">
