@@ -6,26 +6,28 @@ import { supabase } from "@/lib/supabaseClient";
 export default function Cotizador3D() {
   const [pestañaActiva, setPestañaActiva] = useState("general");
 
-  // Parámetros Globales de Máquina y Energía
+  // Parámetros Globales de Máquina, Energía y Margen de Error
   const [precioKg, setPrecioKg] = useState(25500);
   const [watts, setWatts] = useState(120);
   const [costoKwh, setCostoKwh] = useState(50);
   const [desgasteHora, setDesgasteHora] = useState(390);
+  const [margenErrorPorcentaje, setMargenErrorPorcentaje] = useState(10);
 
   // Estado para saber si estamos editando un registro existente
   const [editandoId, setEditandoId] = useState(null);
 
-  // Estados Formulario General
+  // Estados Formulario General (¡Con Insumos Extras incorporado!)
   const [generalNombre, setGeneralNombre] = useState("");
   const [generalCliente, setGeneralCliente] = useState("");
   const [generalMaterial, setGeneralMaterial] = useState("PLA");
   const [generalPeso, setGeneralPeso] = useState(50);
   const [generalHoras, setGeneralHoras] = useState(2);
   const [generalMinutos, setGeneralMinutos] = useState(30);
-  const [generalMargen, setGeneralMargen] = useState(3.5);
+  const [generalMargen, setGeneralMargen] = useState("3.5");
   const [generalPiezas, setGeneralPiezas] = useState(1);
+  const [generalInsumosExtras, setGeneralInsumosExtras] = useState(0);
 
-  // Estados Formulario Chops (¡Con Minorista / Mayorista restaurado!)
+  // Estados Formulario Chops
   const [chopNombre, setChopNombre] = useState("Chop Futbolero / Fernet");
   const [chopCliente, setChopCliente] = useState("");
   const [chopTipoVenta, setChopTipoVenta] = useState("minorista");
@@ -36,9 +38,9 @@ export default function Cotizador3D() {
   const [chopCostoAluminio, setChopCostoAluminio] = useState(3500);
   const [chopCostoLogos, setChopCostoLogos] = useState(800);
   const [chopDescuentoMayorista, setChopDescuentoMayorista] = useState(20);
-  const [chopMargen, setChopMargen] = useState(2.2);
+  const [chopMargen, setChopMargen] = useState("3.0");
 
-  // Estados Formulario Llaveros (Por Plancha / Lote)
+  // Estados Formulario Llaveros
   const [llaveroNombre, setLlaveroNombre] = useState("Llaveros Personalizados");
   const [llaveroCliente, setLlaveroCliente] = useState("");
   const [llaveroColores, setLlaveroColores] = useState("4");
@@ -49,6 +51,7 @@ export default function Cotizador3D() {
   const [cantidadLlaverosPedida, setCantidadLlaverosPedida] = useState(20);
   const [costoArgolla, setCostoArgolla] = useState(40);
   const [costoPackaging, setCostoPackaging] = useState(50);
+  const [llaveroMargen, setLlaveroMargen] = useState("5.0");
 
   // Historiales sincronizados con Supabase
   const [historialCotizaciones, setHistorialCotizaciones] = useState([]);
@@ -74,93 +77,125 @@ export default function Cotizador3D() {
     setCargando(false);
   };
 
-  const calcularCostosBase = (pesoGramos, horas, mins, precioKilo, w, kwh, desgaste) => {
+  const calcularDesgloseBase = (pesoGramos, horas, mins, precioKilo, w, kwh, desgaste, porcError) => {
     const tiempoTotalHs = Number(horas) + Number(mins) / 60;
-    const costoMat = Number(pesoGramos) * (Number(precioKilo) / 1000);
+    const precioMatKg = Number(precioKilo);
+    const costoMat = Number(pesoGramos) * (precioMatKg / 1000);
     const luz = (tiempoTotalHs * (Number(w) / 1000)) * Number(kwh);
     const amort = tiempoTotalHs * Number(desgaste);
-    const total = costoMat + luz + amort;
-    return { costoMat, luz, amort, total, tiempoTotalHs };
+    
+    const subtotalOperativo = costoMat + luz + amort;
+    const margenErrorVal = subtotalOperativo * (Number(porcError) / 100);
+    const costoTotalSinInsumos = subtotalOperativo + margenErrorVal;
+
+    return { costoMat, luz, amort, margenErrorVal, costoTotalSinInsumos, tiempoTotalHs };
   };
 
-  // 1. Cálculos Cotizador General
-  const calcGeneral = calcularCostosBase(generalPeso, generalHoras, generalMinutos, precioKg, watts, costoKwh, desgasteHora);
-  const costoTotalLoteGeneral = calcGeneral.total * Number(generalPiezas);
-  const ventaGeneralTotal = costoTotalLoteGeneral * Number(generalMargen);
+  // 1. Cálculos Cotizador General (Con insumos extras fijos sin ganancia)
+  const cantGeneral = Math.max(1, Number(generalPiezas));
+  const baseGen = calcularDesgloseBase(generalPeso, generalHoras, generalMinutos, precioKg, watts, costoKwh, desgasteHora, margenErrorPorcentaje);
+  const costoMatGenTotal = baseGen.costoMat * cantGeneral;
+  const luzGenTotal = baseGen.luz * cantGeneral;
+  const amortGenTotal = baseGen.amort * cantGeneral;
+  const errorGenTotal = baseGen.margenErrorVal * cantGeneral;
+  const costoTotalSinInsumosGen = baseGen.costoTotalSinInsumos * cantGeneral;
+  
+  const insumosGenTotal = Number(generalInsumosExtras) * cantGeneral;
+  const multiplicadorGeneralVal = Number(generalMargen);
+  
+  const ventaImpresionGeneral = costoTotalSinInsumosGen * multiplicadorGeneralVal;
+  const ventaGeneralTotal = ventaImpresionGeneral + insumosGenTotal;
+  const costoTotalLoteGeneral = costoTotalSinInsumosGen + insumosGenTotal;
   const gananciaGeneralTotal = ventaGeneralTotal - costoTotalLoteGeneral;
+  const precioUnitarioGeneral = ventaGeneralTotal / cantGeneral;
 
-  // 2. Cálculos Chops (Con opción Minorista/Mayorista y Descuento)
-  const calcChopBase = calcularCostosBase(chopPeso, chopHoras, chopMinutos, precioKg, watts, costoKwh, desgasteHora);
-  const costoInsumosExtraChop = Number(chopCostoAluminio) + Number(chopCostoLogos);
-  const costoTotalPorChop = calcChopBase.total + costoInsumosExtraChop;
-  const chopCostoTotalLote = costoTotalPorChop * Number(chopCantidad);
-  const chopVentaSinDescuento = chopCostoTotalLote * Number(chopMargen);
+  // 2. Cálculos Chops
+  const cantChops = Math.max(1, Number(chopCantidad));
+  const baseChop = calcularDesgloseBase(chopPeso, chopHoras, chopMinutos, precioKg, watts, costoKwh, desgasteHora, margenErrorPorcentaje);
+  const costoMatChopTotal = baseChop.costoMat * cantChops;
+  const luzChopTotal = baseChop.luz * cantChops;
+  const amortChopTotal = baseChop.amort * cantChops;
+  const errorChopTotal = baseChop.margenErrorVal * cantChops;
+  const costoTotalSinInsumosChop = baseChop.costoTotalSinInsumos * cantChops;
+
+  const insumosUnitariosChop = Number(chopCostoAluminio) + Number(chopCostoLogos);
+  const insumosChopTotal = insumosUnitariosChop * cantChops;
+  const chopCostoTotalLote = costoTotalSinInsumosChop + insumosChopTotal;
+  
+  const multiplicadorChopVal = Number(chopMargen);
+  const chopVentaSinDescuento = chopCostoTotalLote * multiplicadorChopVal;
   const chopVentaFinal = chopTipoVenta === "mayorista" 
     ? chopVentaSinDescuento * (1 - Number(chopDescuentoMayorista) / 100)
     : chopVentaSinDescuento;
   const chopGananciaFinal = chopVentaFinal - chopCostoTotalLote;
 
-  // 3. Cálculos Llaveros (Con Torre AMS, Argolla, Packaging y Escala Dinámica por Volumen)
+  // 3. Cálculos Llaveros (Argollas con ganancia, Packaging fijo sin ganancia)
   const factorTorrePlancha = llaveroColores === "1" ? 1.0 : llaveroColores === "2" ? 1.3 : llaveroColores === "3" ? 1.6 : 2.0;
   const pesoTotalPlanchaConTorre = Number(pesoTotalPlancha) * factorTorrePlancha;
   const cantidadPlanchasNecesarias = Math.ceil(Number(cantidadLlaverosPedida) / Number(llaverosPorPlancha || 1));
   const pesoTotalPedidoLlaveros = pesoTotalPlanchaConTorre * cantidadPlanchasNecesarias;
   const tiempoTotalPedidoLlaverosHs = (Number(planchaHoras) + Number(planchaMinutos) / 60) * cantidadPlanchasNecesarias;
   
-  const costoImpresionLlaveros = (pesoTotalPedidoLlaveros * (Number(precioKg) / 1000)) + 
-    (tiempoTotalPedidoLlaverosHs * (Number(watts) / 1000) * Number(costoKwh)) + 
-    (tiempoTotalPedidoLlaverosHs * Number(desgasteHora));
-
-  const totalArgollasYPackaging = Number(cantidadLlaverosPedida) * (Number(costoArgolla) + Number(costoPackaging));
-  const costoTotalProduccionLlaveros = costoImpresionLlaveros + totalArgollasYPackaging;
+  const baseLlaveros = calcularDesgloseBase(pesoTotalPedidoLlaveros, (Number(planchaHoras) * cantidadPlanchasNecesarias), (Number(planchaMinutos) * cantidadPlanchasNecesarias), precioKg, watts, costoKwh, desgasteHora, margenErrorPorcentaje);
   
+  const costoTotalSinInsumosLlaveros = baseLlaveros.costoTotalSinInsumos;
   const cantLlaveros = Number(cantidadLlaverosPedida) || 1;
-  let margenLlaveros = 4.0;
-  if (cantLlaveros >= 6 && cantLlaveros <= 15) margenLlaveros = 3.5;
-  else if (cantLlaveros >= 16 && cantLlaveros <= 39) margenLlaveros = 3.0;
-  else if (cantLlaveros >= 40 && cantLlaveros <= 99) margenLlaveros = 2.5;
-  else if (cantLlaveros >= 100) margenLlaveros = 2.1;
+  const totalArgollas = Number(costoArgolla) * cantLlaveros;
+  const totalPackaging = Number(costoPackaging) * cantLlaveros;
 
-  const llaveroVentaFinal = costoTotalProduccionLlaveros * margenLlaveros;
+  const baseConGananciaLlaveros = costoTotalSinInsumosLlaveros + totalArgollas;
+  const multiplicadorLlaverosVal = Number(llaveroMargen);
+
+  const ventaImpresionYArgollas = baseConGananciaLlaveros * multiplicadorLlaverosVal;
+  const llaveroVentaFinal = ventaImpresionYArgollas + totalPackaging;
+  
+  const costoTotalProduccionLlaveros = costoTotalSinInsumosLlaveros + totalArgollas + totalPackaging;
   const llaveroGananciaFinal = llaveroVentaFinal - costoTotalProduccionLlaveros;
+  
   const costoUnitarioLlavero = cantLlaveros > 0 ? costoTotalProduccionLlaveros / cantLlaveros : 0;
   const precioUnitarioVentaLlavero = cantLlaveros > 0 ? llaveroVentaFinal / cantLlaveros : 0;
 
+  let descripcionMaterialLlavero = `PLA (${llaveroColores} cols)`;
+  if (Number(costoArgolla) > 0) descripcionMaterialLlavero += " + Argolla";
+  if (Number(costoPackaging) > 0) descripcionMaterialLlavero += " + Pack";
+
   // --- GUARDAR / ACTUALIZAR EN SUPABASE ---
   const guardarRegistro = async (tipoHistorial, itemData) => {
-    if (!itemData.nombreModelo.trim()) return;
+    if (!itemData.nombreModelo.trim()) {
+      alert("Por favor, ingresa un nombre para el modelo.");
+      return;
+    }
 
     const payload = {
       tipo_historial: tipoHistorial,
       nombre_modelo: itemData.nombreModelo,
-      cliente: itemData.cliente,
-      material: itemData.material,
-      peso: itemData.peso,
-      tiempo_total: itemData.tiempoTotal,
-      precio_filamento: Number(precioKg), // Guardamos el precio del filamento usado
+      cliente: itemData.cliente || "General",
+      material: itemData.material || "PLA",
+      peso: itemData.peso || "0g",
+      tiempo_total: itemData.tiempoTotal || "0h",
+      precio_filamento: Number(precioKg),
       costo_total: Number(itemData.costoTotal),
       ganancia_neta: Number(itemData.gananciaNeta),
       venta_sugerida: Number(itemData.ventaSugerida),
-      tipo: itemData.tipo
+      tipo: itemData.tipo || "General",
+      raw_data: JSON.stringify(itemData.rawConfig || {})
     };
 
-    if (editandoId) {
-      const { error } = await supabase.from("registros").update(payload).eq("id", editandoId);
-      if (error) {
-        alert("Error al actualizar: " + error.message);
-      } else {
-        alert("¡Registro actualizado en la nube!");
+    try {
+      if (editandoId) {
+        const { error } = await supabase.from("registros").update(payload).eq("id", editandoId);
+        if (error) throw error;
+        alert("¡Registro actualizado exitosamente!");
         setEditandoId(null);
-        cargarDatosSupabase();
-      }
-    } else {
-      const { error } = await supabase.from("registros").insert([payload]);
-      if (error) {
-        alert("Error al guardar: " + error.message);
       } else {
+        const { error } = await supabase.from("registros").insert([payload]);
+        if (error) throw error;
         alert("¡Guardado en la nube exitosamente!");
-        cargarDatosSupabase();
       }
+      cargarDatosSupabase();
+    } catch (err) {
+      alert("Error al guardar en Supabase: " + err.message);
+      console.error("Detalle del error:", err);
     }
   };
 
@@ -176,32 +211,48 @@ export default function Cotizador3D() {
     }
   };
 
-  // --- CARGAR DATOS PARA EDITAR ---
+  // --- CARGAR DATOS EXACTOS PARA EDITAR ---
   const prepararEdicion = (item) => {
     setEditandoId(item.id);
     if (item.precio_filamento) setPrecioKg(item.precio_filamento);
-    if (item.tipo_historial === "cotizaciones") {
+
+    let config = {};
+    try {
+      if (item.raw_data) config = JSON.parse(item.raw_data);
+    } catch (e) {}
+
+    if (item.tipo_historial === "cotizaciones" || (item.tipo && item.tipo.includes("General"))) {
       setPestañaActiva("general");
       setGeneralNombre(item.nombre_modelo);
       setGeneralCliente(item.cliente);
-      setGeneralMaterial(item.material);
-    } else {
-      if (item.tipo && item.tipo.includes("Llavero")) {
-        setPestañaActiva("llaveros");
-        setLlaveroNombre(item.nombre_modelo);
-        setLlaveroCliente(item.cliente);
-      } else if (item.tipo && item.tipo.includes("Chop")) {
-        setPestañaActiva("chops");
-        setChopNombre(item.nombre_modelo);
-        setChopCliente(item.cliente);
-      } else {
-        setPestañaActiva("general");
-        setGeneralNombre(item.nombre_modelo);
-        setGeneralCliente(item.cliente);
-      }
+      setGeneralMaterial(item.material || "PLA");
+      if (config.generalPeso) setGeneralPeso(config.generalPeso);
+      if (config.generalHoras) setGeneralHoras(config.generalHoras);
+      if (config.generalMinutos) setGeneralMinutos(config.generalMinutos);
+      if (config.generalPiezas) setGeneralPiezas(config.generalPiezas);
+      if (config.generalMargen) setGeneralMargen(config.generalMargen);
+      if (config.generalInsumosExtras !== undefined) setGeneralInsumosExtras(config.generalInsumosExtras);
+    } else if (item.tipo && item.tipo.includes("Chop")) {
+      setPestañaActiva("chops");
+      setChopNombre(item.nombre_modelo.split("(")[0].trim());
+      setChopCliente(item.cliente);
+      if (config.chopPeso) setChopPeso(config.chopPeso);
+      if (config.chopCantidad) setChopCantidad(config.chopCantidad);
+      if (config.chopCostoAluminio) setChopCostoAluminio(config.chopCostoAluminio);
+      if (config.chopCostoLogos) setChopCostoLogos(config.chopCostoLogos);
+      if (config.chopMargen) setChopMargen(config.chopMargen);
+    } else if (item.tipo && item.tipo.includes("Llavero")) {
+      setPestañaActiva("llaveros");
+      setLlaveroNombre(item.nombre_modelo.split("(")[0].trim());
+      setLlaveroCliente(item.cliente);
+      if (config.cantidadLlaverosPedida) setCantidadLlaverosPedida(config.cantidadLlaverosPedida);
+      if (config.pesoTotalPlancha) setPesoTotalPlancha(config.pesoTotalPlancha);
+      if (config.costoArgolla !== undefined) setCostoArgolla(config.costoArgolla);
+      if (config.costoPackaging !== undefined) setCostoPackaging(config.costoPackaging);
+      if (config.llaveroMargen) setLlaveroMargen(config.llaveroMargen);
     }
+
     window.scrollTo({ top: 0, behavior: "smooth" });
-    alert(`Cargando datos de "${item.nombre_modelo}" para editar.`);
   };
 
   const filtrarHistorial = (lista) => {
@@ -240,9 +291,9 @@ export default function Cotizador3D() {
         {/* CONFIGURACIÓN GLOBAL */}
         <section className="bg-[#12161f] p-4 md:p-5 rounded-2xl border border-blue-600/30 shadow-xl space-y-3">
           <h2 className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center gap-2">
-            ⚡ Configuración Global de Máquina y Energía
+            ⚡ Configuración Global de Máquina, Energía y Seguridad
           </h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div>
               <label className="text-[11px] text-zinc-400 block mb-1">Precio Filamento ($/kg)</label>
               <input
@@ -277,6 +328,15 @@ export default function Cotizador3D() {
                 value={desgasteHora}
                 onChange={(e) => setDesgasteHora(e.target.value)}
                 className="w-full bg-[#1c212e] border border-zinc-700 rounded-xl p-2.5 text-xs text-white"
+              />
+            </div>
+            <div>
+              <label className="text-[11px] text-amber-400 font-bold block mb-1">Margen de Error (%)</label>
+              <input
+                type="number"
+                value={margenErrorPorcentaje}
+                onChange={(e) => setMargenErrorPorcentaje(e.target.value)}
+                className="w-full bg-[#1c212e] border border-amber-500/50 rounded-xl p-2.5 text-xs text-white font-bold"
               />
             </div>
           </div>
@@ -326,7 +386,7 @@ export default function Cotizador3D() {
           </button>
         </nav>
 
-        {/* CONTENIDO SOLAPA GENERAL */}
+        {/* SOLAPA GENERAL */}
         {pestañaActiva === "general" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
@@ -339,7 +399,7 @@ export default function Cotizador3D() {
                       type="text"
                       value={generalNombre}
                       onChange={(e) => setGeneralNombre(e.target.value)}
-                      placeholder="Ej: Soporte Casco"
+                      placeholder="Ej: Soporte de Casco"
                       className="w-full bg-[#1c212e] border border-zinc-700 rounded-xl p-3 text-sm text-white"
                     />
                   </div>
@@ -349,7 +409,7 @@ export default function Cotizador3D() {
                       type="text"
                       value={generalCliente}
                       onChange={(e) => setGeneralCliente(e.target.value)}
-                      placeholder="Ej: Stock Catálogo"
+                      placeholder="Ej: Juan Pérez / Stock"
                       className="w-full bg-[#1c212e] border border-zinc-700 rounded-xl p-3 text-sm text-white"
                     />
                   </div>
@@ -357,7 +417,7 @@ export default function Cotizador3D() {
               </div>
 
               <div className="bg-[#12161f] p-5 rounded-2xl border border-zinc-800 shadow-xl space-y-4">
-                <h2 className="text-xs font-bold text-amber-400 uppercase tracking-wider">🧵 Parámetros de Impresión</h2>
+                <h2 className="text-xs font-bold text-amber-400 uppercase tracking-wider">🧵 Parámetros e Impresión por Unidad</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs text-zinc-400 block mb-1">Material</label>
@@ -373,7 +433,7 @@ export default function Cotizador3D() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs text-zinc-400 block mb-1">Peso (gramos)</label>
+                    <label className="text-xs text-zinc-400 block mb-1">Peso Unitario (g)</label>
                     <input
                       type="number"
                       value={generalPeso}
@@ -383,7 +443,7 @@ export default function Cotizador3D() {
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-xs text-zinc-400 block mb-1">Horas</label>
+                      <label className="text-xs text-zinc-400 block mb-1">Horas / Unidad</label>
                       <input
                         type="number"
                         value={generalHoras}
@@ -392,7 +452,7 @@ export default function Cotizador3D() {
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-zinc-400 block mb-1">Minutos</label>
+                      <label className="text-xs text-zinc-400 block mb-1">Mins / Unidad</label>
                       <input
                         type="number"
                         value={generalMinutos}
@@ -401,26 +461,39 @@ export default function Cotizador3D() {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs text-zinc-400 block mb-1">Insumos Extras C/U ($) <span className="text-[10px] text-zinc-500">(Imanes, rodamientos, etc.)</span></label>
+                    <input
+                      type="number"
+                      value={generalInsumosExtras}
+                      onChange={(e) => setGeneralInsumosExtras(e.target.value)}
+                      placeholder="Ej: 500"
+                      className="w-full bg-[#1c212e] border border-zinc-700 rounded-xl p-3 text-sm text-white"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 md:col-span-2">
                     <div>
-                      <label className="text-xs text-zinc-400 block mb-1">Margen</label>
+                      <label className="text-xs text-zinc-400 block mb-1 font-bold text-amber-400">Multiplicador Ganancia</label>
                       <select
                         value={generalMargen}
                         onChange={(e) => setGeneralMargen(e.target.value)}
-                        className="w-full bg-[#1c212e] border border-zinc-700 rounded-xl p-3 text-sm text-white"
+                        className="w-full bg-[#1c212e] border border-amber-500/50 rounded-xl p-3 text-sm text-white font-bold"
                       >
-                        <option value="2">x2.0 - Normal</option>
-                        <option value="3.5">x3.5 - Estándar</option>
-                        <option value="4">x4.0 - Premium</option>
+                        <option value="2.0">×2.0 — Alto volumen / desc.</option>
+                        <option value="2.5">×2.5 — Volumen medio</option>
+                        <option value="3.0">×3.0 — Mayorista</option>
+                        <option value="3.5">×3.5 — Intermedio</option>
+                        <option value="4.0">×4.0 — Minorista</option>
+                        <option value="5.0">×5.0 — Llaveros / chicas</option>
                       </select>
                     </div>
                     <div>
-                      <label className="text-xs text-zinc-400 block mb-1">Unidades</label>
+                      <label className="text-xs text-zinc-400 block mb-1 font-bold text-amber-400">Cantidad Solicitada</label>
                       <input
                         type="number"
                         value={generalPiezas}
                         onChange={(e) => setGeneralPiezas(e.target.value)}
-                        className="w-full bg-[#1c212e] border border-zinc-700 rounded-xl p-3 text-sm text-white"
+                        className="w-full bg-[#1c212e] border-2 border-amber-400 rounded-xl p-3 text-sm text-white font-bold"
                       />
                     </div>
                   </div>
@@ -428,58 +501,96 @@ export default function Cotizador3D() {
               </div>
             </div>
 
-            <div className="bg-[#12161f] p-6 rounded-2xl border-2 border-amber-400 shadow-2xl space-y-6">
-              <h2 className="text-base font-bold text-white border-b border-zinc-800 pb-3">Resumen General</h2>
-              <div className="space-y-3 text-sm text-zinc-400">
+            {/* RESUMEN DESGLOSADO GENERAL */}
+            <div className="bg-[#12161f] p-6 rounded-2xl border-2 border-amber-400 shadow-2xl space-y-4">
+              <h2 className="text-base font-bold text-white border-b border-zinc-800 pb-3">Desglose de Costos</h2>
+              <div className="space-y-2.5 text-xs text-zinc-300 font-mono">
                 <div className="flex justify-between">
-                  <span>Costo Filamento:</span>
-                  <span className="text-white">${(calcGeneral.costoMat * Number(generalPiezas)).toFixed(2)}</span>
+                  <span>Precio material ({generalPeso * cantGeneral}g):</span>
+                  <span className="text-white">${costoMatGenTotal.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Electricidad + Desgaste:</span>
-                  <span className="text-white">${((calcGeneral.luz + calcGeneral.amort) * Number(generalPiezas)).toFixed(2)}</span>
+                  <span>Precio luz:</span>
+                  <span className="text-white">${luzGenTotal.toFixed(2)}</span>
                 </div>
-                <div className="border-t border-zinc-800 pt-3 flex justify-between font-semibold">
-                  <span>Costo Total Lote:</span>
-                  <span className="text-white">${costoTotalLoteGeneral.toFixed(2)}</span>
+                <div className="flex justify-between">
+                  <span>Desgaste máquina:</span>
+                  <span className="text-white">${amortGenTotal.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-emerald-400 font-extrabold text-xs bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-800/40">
-                  <span>💡 Ganancia Neta:</span>
+                <div className="flex justify-between text-amber-400">
+                  <span>Margen de error ({margenErrorPorcentaje}%):</span>
+                  <span>+${errorGenTotal.toFixed(2)}</span>
+                </div>
+                <div className="border-t border-zinc-800 pt-2 flex justify-between font-bold text-zinc-100">
+                  <span>Costo total impresión:</span>
+                  <span>${costoTotalSinInsumosGen.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Insumos extras (fijos sin ganancia):</span>
+                  <span className="text-white">${insumosGenTotal.toFixed(2)}</span>
+                </div>
+                <div className="border-t border-zinc-800 pt-2 flex justify-between font-bold text-emerald-400">
+                  <span>Ganancia ({`×${multiplicadorGeneralVal}`}):</span>
                   <span>+${gananciaGeneralTotal.toFixed(2)}</span>
                 </div>
               </div>
 
-              <div className="bg-gradient-to-b from-amber-500 to-amber-300 p-4 rounded-xl text-center">
-                <span className="text-xs text-black uppercase font-extrabold">Precio Venta Sugerido</span>
+              <div className="bg-gradient-to-b from-amber-500 to-amber-300 p-4 rounded-xl text-center shadow-lg">
+                <span className="text-[11px] text-black uppercase font-extrabold tracking-wider block">Precio Venta Total</span>
                 <div className="text-3xl font-black text-black">${ventaGeneralTotal.toFixed(2)}</div>
+                {cantGeneral > 1 && (
+                  <div className="text-xs text-amber-950 font-bold mt-1">
+                    (${precioUnitarioGeneral.toFixed(2)} c/u)
+                  </div>
+                )}
               </div>
 
-              <button
-                onClick={() => guardarRegistro("cotizaciones", {
-                  nombreModelo: generalNombre || "Sin nombre",
-                  cliente: generalCliente || "Catálogo",
-                  material: generalMaterial,
-                  peso: `${generalPeso}g`,
-                  tiempoTotal: `${generalHoras}h ${generalMinutos}m`,
-                  costoTotal: costoTotalLoteGeneral.toFixed(2),
-                  gananciaNeta: gananciaGeneralTotal.toFixed(2),
-                  ventaSugerida: ventaGeneralTotal.toFixed(2),
-                  tipo: "Cotización General"
-                })}
-                className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-3 rounded-xl cursor-pointer"
-              >
-                {editandoId ? "💾 Actualizar Cotización" : "📦 Guardar en Catálogo"}
-              </button>
+              <div className="space-y-2 pt-2">
+                <button
+                  onClick={() => guardarRegistro("cotizaciones", {
+                    nombreModelo: `${generalNombre || "Sin nombre"} (${cantGeneral}u)`,
+                    cliente: generalCliente || "Catálogo",
+                    material: `${generalMaterial} (×${multiplicadorGeneralVal})`,
+                    peso: `${generalPeso * cantGeneral}g`,
+                    tiempoTotal: `${generalHoras * cantGeneral}h ${generalMinutos * cantGeneral}m`,
+                    costoTotal: costoTotalLoteGeneral.toFixed(2),
+                    gananciaNeta: gananciaGeneralTotal.toFixed(2),
+                    ventaSugerida: ventaGeneralTotal.toFixed(2),
+                    tipo: `Cotización General (×${multiplicadorGeneralVal})`,
+                    rawConfig: { generalPeso, generalHoras, generalMinutos, generalPiezas, generalMargen, generalInsumosExtras }
+                  })}
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-2.5 rounded-xl cursor-pointer"
+                >
+                  📦 Guardar en Catálogo
+                </button>
+                <button
+                  onClick={() => guardarRegistro("presupuestos", {
+                    nombreModelo: `${generalNombre || "Sin nombre"} (${cantGeneral}u)`,
+                    cliente: generalCliente || "Cliente General",
+                    material: `${generalMaterial} (×${multiplicadorGeneralVal})`,
+                    peso: `${generalPeso * cantGeneral}g`,
+                    tiempoTotal: `${generalHoras * cantGeneral}h ${generalMinutos * cantGeneral}m`,
+                    costoTotal: costoTotalLoteGeneral.toFixed(2),
+                    gananciaNeta: gananciaGeneralTotal.toFixed(2),
+                    ventaSugerida: ventaGeneralTotal.toFixed(2),
+                    tipo: `Presupuesto General (×${multiplicadorGeneralVal})`,
+                    rawConfig: { generalPeso, generalHoras, generalMinutos, generalPiezas, generalMargen, generalInsumosExtras }
+                  })}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 rounded-xl cursor-pointer"
+                >
+                  📄 Guardar en Presupuestos
+                </button>
+              </div>
             </div>
           </div>
         )}
 
-        {/* CONTENIDO SOLAPA CHOPS - ¡CON MINORISTA / MAYORISTA RESTAURADO! */}
+        {/* SOLAPA CHOPS */}
         {pestañaActiva === "chops" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
               <div className="bg-[#12161f] p-5 rounded-2xl border border-zinc-800 shadow-xl space-y-4">
-                <h2 className="text-xs font-bold text-amber-400 uppercase tracking-wider">🍺 Configuración del Chop (Estructura, Aluminio y Logos)</h2>
+                <h2 className="text-xs font-bold text-amber-400 uppercase tracking-wider">🍺 Configuración del Chop</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs text-zinc-400 block mb-1">Modelo Chop</label>
@@ -496,7 +607,7 @@ export default function Cotizador3D() {
                       type="text"
                       value={chopCliente}
                       onChange={(e) => setChopCliente(e.target.value)}
-                      placeholder="Ej: Pedido Chops"
+                      placeholder="Ej: Stock / Nombre Cliente"
                       className="w-full bg-[#1c212e] border border-zinc-700 rounded-xl p-3 text-sm text-white"
                     />
                   </div>
@@ -534,7 +645,7 @@ export default function Cotizador3D() {
                     <input
                       type="number"
                       value={chopCostoAluminio}
-                      onChange={(e) => setCostoAluminio(e.target.value)}
+                      onChange={(e) => setChopCostoAluminio(e.target.value)}
                       className="w-full bg-[#1c212e] border border-zinc-700 rounded-xl p-3 text-sm text-white"
                     />
                   </div>
@@ -548,106 +659,117 @@ export default function Cotizador3D() {
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-zinc-400 block mb-1">Multiplicador (Margen Chop)</label>
+                    <label className="text-xs text-zinc-400 block mb-1 font-bold text-amber-400">Multiplicador Ganancia</label>
                     <select
                       value={chopMargen}
                       onChange={(e) => setChopMargen(e.target.value)}
-                      className="w-full bg-[#1c212e] border border-zinc-700 rounded-xl p-3 text-sm text-white"
+                      className="w-full bg-[#1c212e] border border-amber-500/50 rounded-xl p-3 text-sm text-white font-bold"
                     >
-                      <option value="2">x2.0 - Competitivo</option>
-                      <option value="2.2">x2.2 - Estándar Recom.</option>
-                      <option value="2.5">x2.5 - Venta Directa</option>
-                      <option value="3">x3.0 - Minorista Exclusivo</option>
+                      <option value="2.0">×2.0 — Alto volumen / desc.</option>
+                      <option value="2.5">×2.5 — Volumen medio</option>
+                      <option value="3.0">×3.0 — Mayorista</option>
+                      <option value="3.5">×3.5 — Intermedio</option>
+                      <option value="4.0">×4.0 — Minorista</option>
+                      <option value="5.0">×5.0 — Llaveros / chicas</option>
                     </select>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 md:col-span-2">
-                    <div>
-                      <label className="text-xs text-zinc-400 block mb-1">Horas / Chop</label>
-                      <input
-                        type="number"
-                        value={chopHoras}
-                        onChange={(e) => setChopHoras(e.target.value)}
-                        className="w-full bg-[#1c212e] border border-zinc-700 rounded-xl p-3 text-sm text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-zinc-400 block mb-1">Mins / Chop</label>
-                      <input
-                        type="number"
-                        value={chopMinutos}
-                        onChange={(e) => setChopMinutos(e.target.value)}
-                        className="w-full bg-[#1c212e] border border-zinc-700 rounded-xl p-3 text-sm text-white"
-                      />
-                    </div>
-                  </div>
-                  {chopTipoVenta === "mayorista" && (
-                    <div className="md:col-span-2">
-                      <label className="text-xs text-zinc-400 block mb-1">% Descuento Mayorista</label>
-                      <input
-                        type="number"
-                        value={chopDescuentoMayorista}
-                        onChange={(e) => setChopDescuentoMayorista(e.target.value)}
-                        className="w-full bg-[#1c212e] border border-zinc-700 rounded-xl p-3 text-sm text-white font-bold text-amber-400"
-                      />
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
 
-            <div className="bg-[#12161f] p-6 rounded-2xl border-2 border-amber-400 shadow-2xl space-y-6">
-              <h2 className="text-base font-bold text-white border-b border-zinc-800 pb-3">Cotización Chops</h2>
-              <div className="space-y-3 text-sm text-zinc-400">
+            {/* RESUMEN DESGLOSADO CHOPS */}
+            <div className="bg-[#12161f] p-6 rounded-2xl border-2 border-amber-400 shadow-2xl space-y-4">
+              <h2 className="text-base font-bold text-white border-b border-zinc-800 pb-3">Desglose de Costos Chops</h2>
+              <div className="space-y-2.5 text-xs text-zinc-300 font-mono">
                 <div className="flex justify-between">
-                  <span>Costo Total Lote:</span>
-                  <span className="text-white">${chopCostoTotalLote.toFixed(2)}</span>
+                  <span>Precio material ({chopPeso * cantChops}g):</span>
+                  <span className="text-white">${costoMatChopTotal.toFixed(2)}</span>
                 </div>
-                {chopTipoVenta === "mayorista" && (
-                  <div className="flex justify-between text-amber-400 text-xs">
-                    <span>Descuento Aplicado:</span>
-                    <span>-{chopDescuentoMayorista}%</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-emerald-400 font-extrabold text-xs bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-800/40">
-                  <span>💡 Ganancia Neta:</span>
+                <div className="flex justify-between">
+                  <span>Precio luz:</span>
+                  <span className="text-white">${luzChopTotal.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Desgaste máquina:</span>
+                  <span className="text-white">${amortChopTotal.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-amber-400">
+                  <span>Margen de error ({margenErrorPorcentaje}%):</span>
+                  <span>+${errorChopTotal.toFixed(2)}</span>
+                </div>
+                <div className="border-t border-zinc-800 pt-2 flex justify-between font-bold text-zinc-100">
+                  <span>Costo total (sin insumos):</span>
+                  <span>${costoTotalSinInsumosChop.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Insumos extras (Aluminio + Logos):</span>
+                  <span className="text-white">${insumosChopTotal.toFixed(2)}</span>
+                </div>
+                <div className="border-t border-zinc-800 pt-2 flex justify-between font-bold text-emerald-400">
+                  <span>Ganancia ({`×${multiplicadorChopVal}`}):</span>
                   <span>+${chopGananciaFinal.toFixed(2)}</span>
                 </div>
+                {chopTipoVenta === "mayorista" && (
+                  <div className="text-amber-400 text-[11px] pt-1">
+                    ⚠️ Descuento mayorista (-{chopDescuentoMayorista}%) aplicado.
+                  </div>
+                )}
               </div>
 
-              <div className="bg-gradient-to-b from-amber-500 to-amber-300 p-4 rounded-xl text-center">
-                <span className="text-xs text-black uppercase font-extrabold">Precio Total Chops</span>
+              <div className="bg-gradient-to-b from-amber-500 to-amber-300 p-4 rounded-xl text-center shadow-lg">
+                <span className="text-[11px] text-black uppercase font-extrabold tracking-wider block">Precio Venta Total Chops</span>
                 <div className="text-3xl font-black text-black">${chopVentaFinal.toFixed(2)}</div>
                 <div className="text-xs text-amber-950 font-bold mt-1">
-                  (${(chopVentaFinal / Number(chopCantidad || 1)).toFixed(2)} c/u)
+                  (${(chopVentaFinal / cantChops).toFixed(2)} c/u)
                 </div>
               </div>
 
-              <button
-                onClick={() => guardarRegistro("presupuestos", {
-                  nombreModelo: `${chopNombre} (${chopCantidad}u - ${chopTipoVenta})`,
-                  cliente: chopCliente || "Pedido Chops",
-                  material: "PLA + Aluminio + Logos",
-                  peso: `${chopPeso * chopCantidad}g`,
-                  tiempoTotal: `${Number(chopHoras) * Number(chopCantidad)}h`,
-                  costoTotal: chopCostoTotalLote.toFixed(2),
-                  gananciaNeta: chopGananciaFinal.toFixed(2),
-                  ventaSugerida: chopVentaFinal.toFixed(2),
-                  tipo: `Chop ${chopTipoVenta}`
-                })}
-                className="w-full bg-blue-600 text-white font-extrabold py-3 rounded-xl cursor-pointer"
-              >
-                {editandoId ? "💾 Actualizar Presupuesto" : "📄 Guardar en Presupuestos"}
-              </button>
+              <div className="space-y-2 pt-2">
+                <button
+                  onClick={() => guardarRegistro("cotizaciones", {
+                    nombreModelo: `${chopNombre} (${cantChops}u - ${chopTipoVenta})`,
+                    cliente: chopCliente || "Catálogo",
+                    material: `PLA + Aluminio + Logos (×${multiplicadorChopVal})`,
+                    peso: `${chopPeso * cantChops}g`,
+                    tiempoTotal: `${Number(chopHoras) * cantChops}h`,
+                    costoTotal: chopCostoTotalLote.toFixed(2),
+                    gananciaNeta: chopGananciaFinal.toFixed(2),
+                    ventaSugerida: chopVentaFinal.toFixed(2),
+                    tipo: `Chop ${chopTipoVenta} (×${multiplicadorChopVal})`,
+                    rawConfig: { chopPeso, chopCantidad, chopCostoAluminio, chopCostoLogos, chopMargen }
+                  })}
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-2.5 rounded-xl cursor-pointer"
+                >
+                  📦 Guardar en Catálogo
+                </button>
+                <button
+                  onClick={() => guardarRegistro("presupuestos", {
+                    nombreModelo: `${chopNombre} (${cantChops}u - ${chopTipoVenta})`,
+                    cliente: chopCliente || "Pedido Chops",
+                    material: `PLA + Aluminio + Logos (×${multiplicadorChopVal})`,
+                    peso: `${chopPeso * cantChops}g`,
+                    tiempoTotal: `${Number(chopHoras) * cantChops}h`,
+                    costoTotal: chopCostoTotalLote.toFixed(2),
+                    gananciaNeta: chopGananciaFinal.toFixed(2),
+                    ventaSugerida: chopVentaFinal.toFixed(2),
+                    tipo: `Chop ${chopTipoVenta} (×${multiplicadorChopVal})`,
+                    rawConfig: { chopPeso, chopCantidad, chopCostoAluminio, chopCostoLogos, chopMargen }
+                  })}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 rounded-xl cursor-pointer"
+                >
+                  📄 Guardar en Presupuestos
+                </button>
+              </div>
             </div>
           </div>
         )}
 
-        {/* CONTENIDO SOLAPA LLAVEROS AMS (LOTE) */}
+        {/* SOLAPA LLAVEROS AMS */}
         {pestañaActiva === "llaveros" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
               <div className="bg-[#12161f] p-5 rounded-2xl border border-zinc-800 shadow-xl space-y-4">
-                <h2 className="text-xs font-bold text-amber-400 uppercase tracking-wider">🔑 Calculadora Llaveros Multicolor (Escalado por Volumen)</h2>
+                <h2 className="text-xs font-bold text-amber-400 uppercase tracking-wider">🔑 Calculadora Llaveros Multicolor</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs text-zinc-400 block mb-1">Nombre Llavero</label>
@@ -738,7 +860,7 @@ export default function Cotizador3D() {
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-zinc-400 block mb-1">Costo Packaging C/U (Bolsa+Cartón) ($)</label>
+                    <label className="text-xs text-zinc-400 block mb-1">Costo Packaging C/U ($)</label>
                     <input
                       type="number"
                       value={costoPackaging}
@@ -746,64 +868,116 @@ export default function Cotizador3D() {
                       className="w-full bg-[#1c212e] border border-zinc-700 rounded-xl p-3 text-sm text-white"
                     />
                   </div>
+                  <div>
+                    <label className="text-xs text-zinc-400 block mb-1 font-bold text-amber-400">Multiplicador Ganancia</label>
+                    <select
+                      value={llaveroMargen}
+                      onChange={(e) => setLlaveroMargen(e.target.value)}
+                      className="w-full bg-[#1c212e] border border-amber-500/50 rounded-xl p-3 text-sm text-white font-bold"
+                    >
+                      <option value="2.0">×2.0 — Alto volumen / desc.</option>
+                      <option value="2.5">×2.5 — Volumen medio</option>
+                      <option value="3.0">×3.0 — Mayorista</option>
+                      <option value="3.5">×3.5 — Intermedio</option>
+                      <option value="4.0">×4.0 — Minorista</option>
+                      <option value="5.0">×5.0 — Llaveros / chicas</option>
+                    </select>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-[#12161f] p-6 rounded-2xl border-2 border-amber-400 shadow-2xl space-y-6">
-              <h2 className="text-base font-bold text-white border-b border-zinc-800 pb-3">Cotización Llaveros (Lote)</h2>
-              <div className="space-y-3 text-sm text-zinc-400">
+            {/* RESUMEN DESGLOSADO LLAVEROS */}
+            <div className="bg-[#12161f] p-6 rounded-2xl border-2 border-amber-400 shadow-2xl space-y-4">
+              <h2 className="text-base font-bold text-white border-b border-zinc-800 pb-3">Desglose Llaveros (Lote)</h2>
+              <div className="space-y-2.5 text-xs text-zinc-300 font-mono">
                 <div className="flex justify-between">
                   <span>Planchas necesarias:</span>
-                  <span className="text-white font-mono">{cantidadPlanchasNecesarias} plancha(s)</span>
+                  <span className="text-white">{cantidadPlanchasNecesarias} plancha(s)</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Costo Real Unitario (Material+Argolla+Pack):</span>
-                  <span className="text-white font-mono">${costoUnitarioLlavero.toFixed(2)} c/u</span>
+                  <span>Precio material neto:</span>
+                  <span className="text-white">${(baseLlaveros.costoMat).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Costo Total Producción:</span>
-                  <span className="text-white">${costoTotalProduccionLlaveros.toFixed(2)}</span>
+                  <span>Precio luz:</span>
+                  <span className="text-white">${(baseLlaveros.luz).toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-amber-400 font-bold text-xs bg-amber-950/20 p-2 rounded-xl border border-amber-800/30">
-                  <span>📊 Margen Aplicado (Escala):</span>
-                  <span>x{margenLlaveros} ({cantLlaveros} unidades)</span>
+                <div className="flex justify-between">
+                  <span>Desgaste máquina:</span>
+                  <span className="text-white">${(baseLlaveros.amort).toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-emerald-400 font-extrabold text-xs bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-800/40">
-                  <span>💡 Ganancia Neta Estimada:</span>
+                <div className="flex justify-between text-amber-400">
+                  <span>Margen de error ({margenErrorPorcentaje}%):</span>
+                  <span>+${(baseLlaveros.margenErrorVal).toFixed(2)}</span>
+                </div>
+                <div className="border-t border-zinc-800 pt-2 flex justify-between font-bold text-zinc-100">
+                  <span>Costo impresión puro:</span>
+                  <span>${costoTotalSinInsumosLlaveros.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Argollas ({cantLlaveros}u c/ganancia):</span>
+                  <span className="text-white">${totalArgollas.toFixed(2)}</span>
+                </div>
+                <div className="border-t border-zinc-800 pt-2 flex justify-between font-bold text-emerald-400">
+                  <span>Ganancia ({`×${multiplicadorLlaverosVal}`}):</span>
                   <span>+${llaveroGananciaFinal.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Packaging fijo (sin ganancia):</span>
+                  <span className="text-white">${totalPackaging.toFixed(2)}</span>
                 </div>
               </div>
 
-              <div className="bg-gradient-to-b from-amber-500 to-amber-300 p-4 rounded-xl text-center">
-                <span className="text-xs text-black uppercase font-extrabold">Precio Total Lote Llaveros</span>
+              <div className="bg-gradient-to-b from-amber-500 to-amber-300 p-4 rounded-xl text-center shadow-lg">
+                <span className="text-[11px] text-black uppercase font-extrabold tracking-wider block">Precio Venta Total Llaveros</span>
                 <div className="text-3xl font-black text-black">${llaveroVentaFinal.toFixed(2)}</div>
                 <div className="text-xs text-amber-950 font-bold mt-1">
                   (${precioUnitarioVentaLlavero.toFixed(2)} c/u)
                 </div>
               </div>
 
-              <button
-                onClick={() => guardarRegistro("presupuestos", {
-                  nombreModelo: `${llaveroNombre} (${cantLlaveros}u - ${llaveroColores} cols)`,
-                  cliente: llaveroCliente || "Pedido Llaveros",
-                  material: `PLA (${llaveroColores} cols + Argolla + Pack)`,
-                  peso: `${pesoTotalPedidoLlaveros.toFixed(0)}g (${cantidadPlanchasNecesarias} planchas)`,
-                  tiempoTotal: `${tiempoTotalPedidoLlaverosHs.toFixed(1)}h total`,
-                  costoTotal: costoTotalProduccionLlaveros.toFixed(2),
-                  gananciaNeta: llaveroGananciaFinal.toFixed(2),
-                  ventaSugerida: llaveroVentaFinal.toFixed(2),
-                  tipo: "Llaveros Plancha"
-                })}
-                className="w-full bg-gradient-to-r from-blue-600 to-cyan-400 text-white font-extrabold py-3 rounded-xl cursor-pointer"
-              >
-                {editandoId ? "💾 Actualizar Presupuesto" : "📄 Guardar en Presupuestos"}
-              </button>
+              <div className="space-y-2 pt-2">
+                <button
+                  onClick={() => guardarRegistro("cotizaciones", {
+                    nombreModelo: `${llaveroNombre} (${cantLlaveros}u - ${llaveroColores} cols)`,
+                    cliente: llaveroCliente || "Catálogo",
+                    material: `${descripcionMaterialLlavero} (×${multiplicadorLlaverosVal})`,
+                    peso: `${pesoTotalPedidoLlaveros.toFixed(0)}g (${cantidadPlanchasNecesarias} planchas)`,
+                    tiempoTotal: `${tiempoTotalPedidoLlaverosHs.toFixed(1)}h total`,
+                    costoTotal: costoTotalProduccionLlaveros.toFixed(2),
+                    gananciaNeta: llaveroGananciaFinal.toFixed(2),
+                    ventaSugerida: llaveroVentaFinal.toFixed(2),
+                    tipo: `Llaveros Plancha (×${multiplicadorLlaverosVal})`,
+                    rawConfig: { cantidadLlaverosPedida, pesoTotalPlancha, costoArgolla, costoPackaging, llaveroMargen }
+                  })}
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-2.5 rounded-xl cursor-pointer"
+                >
+                  📦 Guardar en Catálogo
+                </button>
+                <button
+                  onClick={() => guardarRegistro("presupuestos", {
+                    nombreModelo: `${llaveroNombre} (${cantLlaveros}u - ${llaveroColores} cols)`,
+                    cliente: llaveroCliente || "Pedido Llaveros",
+                    material: `${descripcionMaterialLlavero} (×${multiplicadorLlaverosVal})`,
+                    peso: `${pesoTotalPedidoLlaveros.toFixed(0)}g (${cantidadPlanchasNecesarias} planchas)`,
+                    tiempoTotal: `${tiempoTotalPedidoLlaverosHs.toFixed(1)}h total`,
+                    costoTotal: costoTotalProduccionLlaveros.toFixed(2),
+                    gananciaNeta: llaveroGananciaFinal.toFixed(2),
+                    ventaSugerida: llaveroVentaFinal.toFixed(2),
+                    tipo: `Llaveros Plancha (×${multiplicadorLlaverosVal})`,
+                    rawConfig: { cantidadLlaverosPedida, pesoTotalPlancha, costoArgolla, costoPackaging, llaveroMargen }
+                  })}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 rounded-xl cursor-pointer"
+                >
+                  📄 Guardar en Presupuestos
+                </button>
+              </div>
             </div>
           </div>
         )}
 
-        {/* HISTORIALES SUPABASE CON BOTONES DE BORRAR Y EDITAR */}
+        {/* HISTORIALES SUPABASE */}
         {(pestañaActiva === "cotizaciones" || pestañaActiva === "presupuestos") && (
           <section className="bg-[#12161f] p-6 rounded-2xl border border-zinc-800 shadow-xl space-y-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -826,9 +1000,10 @@ export default function Cotizador3D() {
                     <th className="p-3">Fecha</th>
                     <th className="p-3">Modelo</th>
                     <th className="p-3">Cliente</th>
-                    <th className="p-3">Material & Costo Filamento</th>
+                    <th className="p-3">Material & Multiplicador</th>
+                    <th className="p-3">Filamento Gastado</th>
                     <th className="p-3">Tiempo</th>
-                    <th className="p-3 text-emerald-400">Ganancia Neta</th>
+                    <th className="p-3 text-emerald-400">Ganancia</th>
                     <th className="p-3 text-right">Precio Venta</th>
                     <th className="p-3 text-center">Acciones</th>
                   </tr>
@@ -836,7 +1011,7 @@ export default function Cotizador3D() {
                 <tbody className="divide-y divide-zinc-800/60">
                   {filtrarHistorial(pestañaActiva === "cotizaciones" ? historialCotizaciones : historialPresupuestos).map((item) => (
                     <tr key={item.id} className="hover:bg-[#1c212e]/50">
-                      <td className="p-3 text-zinc-400 text-xs">{new Date(item.created_at).toLocaleString()}</td>
+                      <td className="p-3 text-zinc-400 text-xs">{new Date(item.created_at).toLocaleDateString()}</td>
                       <td className="p-3 font-semibold text-white">{item.nombre_modelo}</td>
                       <td className="p-3 text-zinc-300">{item.cliente}</td>
                       <td className="p-3 text-zinc-300 font-mono text-xs">
@@ -846,6 +1021,9 @@ export default function Cotizador3D() {
                             Filamento: ${item.precio_filamento}/kg
                           </div>
                         )}
+                      </td>
+                      <td className="p-3 font-bold text-amber-400 font-mono text-xs">
+                        {item.peso || "N/D"}
                       </td>
                       <td className="p-3 text-zinc-300 text-xs font-mono">{item.tiempo_total}</td>
                       <td className="p-3 font-extrabold text-emerald-400 font-mono text-xs">+${item.ganancia_neta}</td>
