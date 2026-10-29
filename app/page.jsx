@@ -272,7 +272,7 @@ export default function Cotizador3D() {
           <div>
             <h1 className="text-3xl font-extrabold tracking-tight flex items-center gap-3">
               <span className="bg-gradient-to-r from-amber-400 to-amber-200 text-transparent bg-clip-text">
-                Rufus Design
+                Rufus Design 3D
               </span>
               <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-600/10 text-blue-400 border border-blue-600/20">
                 Cotizador 3D Cloud ☁️
@@ -280,12 +280,25 @@ export default function Cotizador3D() {
             </h1>
             <p className="text-xs text-zinc-400 mt-1">Plataforma integral de costos y presupuestos</p>
           </div>
-          {editandoId && (
-            <div className="bg-amber-500/10 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs text-amber-400 flex items-center gap-2">
-              <span>⚠️ Estás editando un registro.</span>
-              <button onClick={() => setEditandoId(null)} className="underline font-bold cursor-pointer">Cancelar</button>
-            </div>
-          )}
+          
+          <div className="flex items-center gap-3">
+            {/* Botón al Catálogo Público */}
+            <a
+              href="/catalogo"
+              target="_blank"
+              className="bg-zinc-800 hover:bg-zinc-700 text-xs text-amber-400 font-bold px-3 py-2 rounded-xl border border-zinc-700 transition-all"
+            >
+              🛍️ Ver Catálogo ↗
+            </a>
+            {/* Botón discreto de Admin para vos */}
+            <a
+              href="/admin"
+              className="text-zinc-600 hover:text-zinc-400 text-xs p-2 transition-all"
+              title="Panel Admin"
+            >
+              ⚙️ Admin
+            </a>
+          </div>
         </header>
 
         {/* CONFIGURACIÓN GLOBAL */}
@@ -1049,7 +1062,16 @@ export default function Cotizador3D() {
             </div>
           </section>
         )}
-
+        {/* Footer Catálogo Público */}
+        <footer className="border-t border-zinc-800 pt-6 pb-8 mt-12 flex flex-col md:flex-row items-center justify-between text-xs text-zinc-500 gap-4">
+          <div>
+            <span className="font-bold text-zinc-400">Rufus Design 3D</span> — Diseños personalizados, chops, mates y llaveros en Zona Oeste, Buenos Aires.
+          </div>
+          <div className="flex items-center gap-4">
+            <a href="https://www.instagram.com/rufusdesign_/" target="_blank" className="hover:text-amber-400 transition-all">Instagram ↗</a>
+            <a href="https://wa.me/5491135061353" target="_blank" className="hover:text-emerald-400 transition-all">WhatsApp ↗</a>
+          </div>
+        </footer>
       </div>
     </main>
   );
